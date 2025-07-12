@@ -6,7 +6,7 @@ import { migrateAndValidate } from '../../../config/migrate-validate';
 import { migrateConfig } from '../../../config/migration';
 import { parseFileConfig } from '../../../config/parse';
 import * as presets from '../../../config/presets';
-import { applySecretsToConfig } from '../../../config/secrets';
+import { applySecretsAndVariablesToConfig } from '../../../config/secrets';
 import type { AllConfig, RenovateConfig } from '../../../config/types';
 import {
   CONFIG_VALIDATION,
@@ -28,13 +28,15 @@ import { maskToken } from '../../../util/mask';
 import { regEx } from '../../../util/regex';
 import { parseAndValidateOrExit } from '../../global/config/parse/env';
 import { getOnboardingConfig } from '../onboarding/branch/config';
-import { getDefaultConfigFileName } from '../onboarding/branch/create';
 import {
   getOnboardingConfigFromCache,
   getOnboardingFileNameFromCache,
   setOnboardingConfigDetails,
 } from '../onboarding/branch/onboarding-branch-cache';
-import { OnboardingState } from '../onboarding/common';
+import {
+  OnboardingState,
+  getDefaultConfigFileName,
+} from '../onboarding/common';
 import type { RepoFileConfig } from './types';
 
 export async function detectConfigFile(): Promise<string | null> {
@@ -262,10 +264,18 @@ export async function mergeRenovateConfig(
     );
     npmApi.setNpmrc(resolvedConfig.npmrc);
   }
-  resolvedConfig = applySecretsToConfig(
-    resolvedConfig,
-    mergeChildConfig(config.secrets ?? {}, resolvedConfig.secrets ?? {}),
-  );
+  resolvedConfig = applySecretsAndVariablesToConfig({
+    config: resolvedConfig,
+    secrets: mergeChildConfig(
+      config.secrets ?? {},
+      resolvedConfig.secrets ?? {},
+    ),
+    variables: mergeChildConfig(
+      config.variables ?? {},
+      resolvedConfig.variables ?? {},
+    ),
+  });
+
   // istanbul ignore if
   if (resolvedConfig.hostRules) {
     logger.debug('Setting hostRules from config');
@@ -344,5 +354,11 @@ export async function mergeStaticRepoEnvConfig(
     return config;
   }
 
-  return mergeChildConfig(config, repoEnvConfig);
+  // merge extends
+  if (is.nonEmptyArray(repoEnvConfig.extends)) {
+    config.extends = [...repoEnvConfig.extends, ...(config.extends ?? [])];
+    delete repoEnvConfig.extends;
+  }
+  // renovate repo config overrides RENOVATE_STATIC_REPO_CONFIG
+  return mergeChildConfig(repoEnvConfig, config);
 }
